@@ -35,6 +35,8 @@ CLaserOdometry2DNode::CLaserOdometry2DNode(): Node("CLaserOdometry2DNode")
   this->get_parameter("odom_frame_id", odom_frame_id);
   this->declare_parameter<bool>("publish_tf", true);
   this->get_parameter("publish_tf", publish_tf);
+  this->declare_parameter<bool>("invert_odom_tf", false);
+  this->get_parameter("invert_odom_tf", invert_odom_tf);
   this->declare_parameter<std::string>("init_pose_from_topic", "/base_pose_ground_truth");
   this->get_parameter("init_pose_from_topic", init_pose_from_topic);
   this->declare_parameter<double>("freq", 10.0);
@@ -229,15 +231,31 @@ void CLaserOdometry2DNode::publish()
   // 2. publish over tf? (one one node should publish this transform!)
   if (publish_tf)
   {
-    RCLCPP_DEBUG(get_logger(), "Publishing TF: [base_link] to [odom]");
     geometry_msgs::msg::TransformStamped odom_trans;
     odom_trans.header.stamp = rf2o_ref.last_odom_time;    // the time of the last scan used!
-    odom_trans.header.frame_id = odom_frame_id;
-    odom_trans.child_frame_id = base_frame_id;
-    odom_trans.transform.translation.x = rf2o_ref.robot_pose_.translation()(0);
-    odom_trans.transform.translation.y = rf2o_ref.robot_pose_.translation()(1);
-    odom_trans.transform.translation.z = 0.0;
-    odom_trans.transform.rotation = quaternion;
+
+    // The odom->base transform as estimated by rf2o
+    tf2::Transform odom_to_base(tf_quaternion,
+                                tf2::Vector3(rf2o_ref.robot_pose_.translation()(0),
+                                             rf2o_ref.robot_pose_.translation()(1),
+                                             0.0));
+
+    if (invert_odom_tf)
+    {
+      // Publish the inverted transform, so another node can own the odom->base link
+      RCLCPP_DEBUG(get_logger(), "Publishing TF: [%s] to [%s]", base_frame_id.c_str(), odom_frame_id.c_str());
+      odom_trans.header.frame_id = base_frame_id;
+      odom_trans.child_frame_id = odom_frame_id;
+      odom_trans.transform = tf2::toMsg(odom_to_base.inverse());
+    }
+    else
+    {
+      RCLCPP_DEBUG(get_logger(), "Publishing TF: [%s] to [%s]", odom_frame_id.c_str(), base_frame_id.c_str());
+      odom_trans.header.frame_id = odom_frame_id;
+      odom_trans.child_frame_id = base_frame_id;
+      odom_trans.transform = tf2::toMsg(odom_to_base);
+    }
+
     //send the transform
     odom_broadcaster->sendTransform(odom_trans);
   }
