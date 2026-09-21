@@ -1,5 +1,6 @@
 #include "rf2o_laser_odometry/CLaserOdometry2D.hpp"
 
+#include <tf2/LinearMath/Transform.h>
 #include <tf2/convert.h>
 #include <tf2/exceptions.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -23,6 +24,7 @@ public:
   // Params & vars
   CLaserOdometry2D    rf2o_ref;
   bool                publish_tf, new_scan_available;
+  bool                invert_odom_tf;
   double              freq;
   std::string         laser_scan_topic;
   std::string         odom_topic;
