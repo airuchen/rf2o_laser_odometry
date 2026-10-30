@@ -99,8 +99,13 @@ void CLaserOdometry2DNode::LaserCallBack(const sensor_msgs::msg::LaserScan::Shar
     }
     else
     {
-      // Initialize module on first scan (from laser params)
-      setLaserPoseFromTf();
+      // Initialize module on first scan (from laser params).
+      // Without the laser pose rf2o would estimate the motion of the laser instead of the base,
+      // so keep waiting (retry on the next scan) instead of initializing with an identity pose.
+      if (!setLaserPoseFromTf())
+      {
+        return;
+      }
       rf2o_ref.init(last_scan, initial_robot_pose.pose.pose);
       rf2o_ref.first_laser_scan = false;
     }
@@ -113,19 +118,19 @@ void CLaserOdometry2DNode::LaserCallBack(const sensor_msgs::msg::LaserScan::Shar
    * This allow estimation of the odometry with respect to the robot base reference system.
    */
 bool CLaserOdometry2DNode::setLaserPoseFromTf()
-{  
-  bool retrieved = false;  
+{
   geometry_msgs::msg::TransformStamped tf_laser;
 
   try
   {
     tf_laser = buffer_->lookupTransform(base_frame_id, last_scan.header.frame_id, tf2::TimePointZero);
-    retrieved = true;
   }
   catch (tf2::TransformException &ex)
   {
-    RCLCPP_ERROR(get_logger(), "%s",ex.what());
-    retrieved = false;
+    // Keep the laser pose unset: a default (identity) pose would silently corrupt the odometry
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "Waiting for transform %s -> %s: %s",
+                         base_frame_id.c_str(), last_scan.header.frame_id.c_str(), ex.what());
+    return false;
   }
 
   // Keep this transform as Eigen Matrix3d
@@ -145,10 +150,12 @@ bool CLaserOdometry2DNode::setLaserPoseFromTf()
   laser_tf.translation()(1) = t[1];
   laser_tf.translation()(2) = t[2];
 
-  // Sets this transform in rf2o 
+  // Sets this transform in rf2o
   rf2o_ref.setLaserPose(laser_tf);
+  RCLCPP_INFO(get_logger(), "Laser pose on the robot (%s -> %s): x %.3f y %.3f z %.3f", base_frame_id.c_str(),
+              last_scan.header.frame_id.c_str(), t[0], t[1], t[2]);
 
-  return retrieved;
+  return true;
 }
 
 
